@@ -1,1 +1,190 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Panel Speaking Timer</title>
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      margin: 24px;
+      background: #fafafa;
+    }
+
+    h1 { margin-bottom: 16px; }
+
+    .card {
+      max-width: 900px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 16px 20px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.05);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 120px 110px 1fr 80px;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 10px;
+      border-top: 1px solid #eee;
+      transition: opacity 0.15s linear, background 0.15s linear;
+    }
+
+    .row:first-child { border-top: none; }
+
+    .name { font-weight: 700; }
+
+    .time, .pct { font-variant-numeric: tabular-nums; }
+
+    .pct { text-align: right; }
+
+    .bar-wrap {
+      background: #f1f1f1;
+      border-radius: 999px;
+      overflow: hidden;
+      height: 16px;
+    }
+
+    .bar {
+      height: 16px;
+      width: 0%;
+      background: linear-gradient(90deg, #111, #444);
+      transition: width 0.15s linear;
+    }
+
+    /* Active speaker highlight */
+    .row.active {
+      background: #111;
+      color: #fff;
+      border-radius: 8px;
+    }
+
+    .row.active .bar {
+      background: linear-gradient(90deg, #00ffcc, #00cc99);
+    }
+
+    .row.inactive { opacity: 0.55; }
+
+    .muted {
+      color: #666;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    .error {
+      color: #b00020;
+      font-size: 13px;
+      margin-top: 10px;
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>🎙️ Panel Speaking Timer (Live)</h1>
+
+  <div class="card">
+    <div id="rows"></div>
+    <div class="muted" id="meta">Σύνδεση…</div>
+    <div class="error" id="err"></div>
+  </div>
+
+<script>
+  const rowsEl = document.getElementById("rows");
+  const metaEl = document.getElementById("meta");
+  const errEl  = document.getElementById("err");
+
+  function setError(msg) {
+    errEl.style.display = "block";
+    errEl.textContent = msg;
+  }
+
+  function clearError() {
+    errEl.style.display = "none";
+    errEl.textContent = "";
+  }
+
+  // Expected data format:
+  // { "times": {"1": 12.3, "2": 5.6}, "active": 2 }
+  function render(data) {
+    const speakers = (data && data.times) ? data.times : {};
+    const active = data ? data.active : null;
+
+    const entries = Object.entries(speakers)
+      .map(([id, t]) => [id, Number(t)])
+      .sort((a, b) => b[1] - a[1]);
+
+    const total = entries.reduce((sum, [, t]) => sum + t, 0) || 0.0001;
+
+    rowsEl.innerHTML = entries.map(([id, t]) => {
+      const pct = (t / total) * 100;
+
+      const cls =
+        (active != null && String(active) === String(id)) ? "row active" :
+        (active != null) ? "row inactive" :
+        "row";
+
+      return `
+        <div class="${cls}">
+          <div class="name">Speaker ${id}</div>
+          <div class="time">${t.toFixed(1)} s</div>
+          <div class="bar-wrap">
+            <div class="bar" style="width:${pct.toFixed(1)}%"></div>
+          </div>
+          <div class="pct">${pct.toFixed(1)}%</div>
+        </div>
+      `;
+    }).join("");
+
+    metaEl.textContent = `Σύνολο χρόνου: ${total.toFixed(1)} s • live`;
+  }
+
+  // WebSocket with auto-reconnect
+  let ws = null;
+  let retryMs = 400;
+
+  function connectWs() {
+    clearError();
+    metaEl.textContent = "Σύνδεση…";
+
+    const protocol = location.protocol === "https:" ? "wss" : "ws";
+    const wsUrl = `${protocol}://${location.host}/ws`;
+
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      retryMs = 400;
+      metaEl.textContent = "Συνδεδεμένο • live";
+      clearError();
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        render(data);
+      } catch (e) {
+        setError("Μη έγκυρο μήνυμα από server");
+      }
+    };
+
+    ws.onerror = () => {
+      setError("Σφάλμα WebSocket σύνδεσης");
+    };
+
+    ws.onclose = () => {
+      setError("Η σύνδεση έκλεισε — επανασύνδεση…");
+      metaEl.textContent = "Offline";
+      setTimeout(connectWs, retryMs);
+      retryMs = Math.min(retryMs * 1.8, 5000);
+    };
+  }
+
+  connectWs();
+</script>
+
+</body>
+</html>
 
